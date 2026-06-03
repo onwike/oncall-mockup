@@ -42,7 +42,8 @@
         <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-sm" style="background:#fee2e2;border:1px solid #dc2626"></span> failure path</span>
         <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-sm" style="background:#dbeafe;border:1px solid #2563eb"></span> Azure / cloud</span>
         <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-sm" style="background:#fef3c7;border:1px solid #d97706"></span> safety loop</span>
-        <span class="text-slate-400">database = cylinder · decision = diamond</span>
+        <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-sm" style="background:#f1f5f9;border:1px solid #94a3b8"></span> infra / neutral</span>
+        <span class="text-slate-400">database = cylinder · decision = diamond · dashed card = appendix</span>
       </div>
     </header>
 
@@ -83,7 +84,7 @@ flowchart TB
         <h3 class="font-semibold text-slate-800">Bad deploy then automatic rollback</h3>
         <span class="text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">The money shot</span>
       </div>
-      <p class="text-sm text-slate-600 mt-1 mb-4 max-w-3xl">The one to watch. A v2 that needs a database column the schema does not have yet is rolled out to 40% of traffic. Its requests error out, the canary error rate hits about 24% against a 5% SLO, and Argo Rollouts aborts and restores v1 in roughly 30 seconds, with nobody paged. The <span class="text-rose-700 font-medium">red band is the failure</span>; the <span class="text-emerald-700 font-medium">green band is the recovery</span>.</p>
+      <p class="text-sm text-slate-600 mt-1 mb-4 max-w-3xl">The one to watch. A v2 that needs a database column the schema does not have yet is rolled out to 40% of traffic. Its /incidents requests error out, pushing the overall error rate to ~24% against a 5% SLO, and Argo Rollouts aborts and restores v1 in roughly 30 seconds, with nobody paged. The <span class="text-rose-700 font-medium">red band is the failure</span>; the <span class="text-emerald-700 font-medium">green band is the recovery</span>.</p>
       <div class="flex flex-wrap gap-2 mb-4">
         <span class="text-xs font-semibold bg-slate-100 text-slate-700 px-2.5 py-1 rounded-md">40% canary slice</span>
         <span class="text-xs font-semibold bg-rose-50 text-rose-700 px-2.5 py-1 rounded-md">~24% error rate</span>
@@ -106,14 +107,16 @@ sequenceDiagram
   Note over V2,PG: FAILURE — every /incidents op reads/writes severity
   V2->>PG: SELECT / INSERT ... severity ...
   PG-->>V2: ERROR: column "severity" does not exist
-  V2-->>Prom: 500s on the /incidents path (canary)
+  Note over V2: HTTP 500 on /incidents, error counter climbs
+  Prom->>V2: scrape /metrics (pull)
+  V2-->>Prom: error counter rising
   AT->>Prom: PromQL query: canary error-rate
   Prom-->>AT: ~24% overall &ge; 5% SLO
   AT->>RO: SLO breach, mark Failed
   end
   rect rgb(220, 252, 231)
   RO->>RO: abort, shift 100% back to v1
-  Note over Op,RO: ~30s end to end · no human paged (design target)
+  Note over Op,RO: ~30s from first errors to full rollback · no human paged (design target)
   end
       </pre>
       <div class="mt-4 border-t border-slate-100 pt-3">
@@ -121,7 +124,7 @@ sequenceDiagram
         <ol class="text-sm text-slate-600 ml-4 list-decimal space-y-0.5 max-w-3xl">
           <li>Deploy v2; Argo routes 40% of traffic to it as a canary.</li>
           <li>Every <code>/incidents</code> request touches the missing <code>severity</code> column and returns a 500.</li>
-          <li>Errors on the canary push the overall error rate to ~24%, well above the 5% SLO budget.</li>
+          <li>The canary's /incidents calls error out, pushing the overall rate to ~24% (not all canary traffic is /incidents), well above the 5% SLO budget.</li>
           <li>The AnalysisRun reads that from Prometheus and marks the canary Failed.</li>
           <li>Argo aborts and shifts 100% of traffic back to the healthy v1, in about 30 seconds. No page.</li>
         </ol>
@@ -153,7 +156,7 @@ flowchart LR
     p1 --> p2 --> p3
     p2 --> p4
   end
-  Demo -. "same Rollout +<br/>AnalysisTemplate manifests" .-> Prod
+  Demo -. "same manifests" .-> Prod
   classDef neutral fill:#f1f5f9,stroke:#94a3b8,color:#334155;
   classDef cloud fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
       </pre>
@@ -192,7 +195,7 @@ flowchart LR
     <h2 class="sec mt-10 mb-3">Appendix · running it locally</h2>
     <div class="card bg-white rounded-xl border border-slate-200 border-dashed p-6 opacity-95">
       <h3 class="font-semibold text-slate-700">Stand-up flow</h3>
-      <p class="text-sm text-slate-600 mt-1 mb-4 max-w-3xl">End to end, how the demo is stood up. <code>make bad</code> triggers the failure scenario from section 2; the SLO gate catches it and rolls back.</p>
+      <p class="text-sm text-slate-600 mt-1 mb-4 max-w-3xl">End to end, how the demo is stood up. <code>make bad</code> always trips the SLO gate (the breach path then rollback); the no-breach branch is the gate's behavior for a healthy release.</p>
       <pre class="mermaid">
 flowchart TB
   A["make up<br/>kind + Argo + Postgres + Prometheus"] --> B["make build<br/>v1 / v2 images"]
@@ -200,8 +203,8 @@ flowchart TB
   C --> D["make load<br/>~10 rps"]
   D --> E["make bad<br/>deploy v2 (un-migrated schema)"]:::failure
   E --> F{"SLO gate<br/>error-rate &ge; 5%?"}
-  F -->|"yes, breach"| G["auto-rollback to v1"]:::healthy
-  F -->|"no, pass"| P["promote v2 to 100%"]:::healthy
+  F -->|"breach (this demo)"| G["auto-rollback to v1"]:::healthy
+  F -->|"no breach (healthy release)"| P["promote to 100%"]:::healthy
   G --> H["demo recorded"]
   P --> H
   classDef healthy fill:#dcfce7,stroke:#16a34a,color:#14532d;
