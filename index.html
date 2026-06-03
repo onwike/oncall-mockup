@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OnCall — incident logger (paved-road demo)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+    .meter-fill { transition: width .6s ease, background-color .4s ease; }
+    .fade { transition: background-color .4s ease, color .4s ease, border-color .4s ease; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+  <!-- top bar -->
+  <header class="bg-slate-900 text-white">
+    <div class="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="h-7 w-7 rounded-lg bg-indigo-500 grid place-items-center font-bold">O</div>
+        <span class="font-semibold tracking-tight">OnCall</span>
+        <span class="text-[10px] uppercase tracking-wider bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full">prototype · mock data</span>
+      </div>
+      <div class="text-sm text-slate-300">Platform SRE · incident logger</div>
+    </div>
+  </header>
+
+  <!-- health banner -->
+  <div id="banner" class="fade bg-emerald-50 border-b border-emerald-200 text-emerald-800">
+    <div class="max-w-6xl mx-auto px-6 py-2.5 text-sm flex items-center gap-2">
+      <span id="banner-dot" class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+      <span id="banner-text" class="font-medium">All systems healthy — serving v1.4.0</span>
+    </div>
+  </div>
+
+  <main class="max-w-6xl mx-auto px-6 py-6 grid lg:grid-cols-5 gap-6">
+    <!-- LEFT: the app -->
+    <section class="lg:col-span-3 space-y-6">
+      <!-- on call -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="text-xs uppercase tracking-wide text-slate-400">Currently on call</div>
+            <div class="mt-1 text-lg font-semibold">Alice Chen</div>
+            <div class="text-sm text-slate-500">since 09:00 · primary · platform-sre</div>
+          </div>
+          <div class="h-12 w-12 rounded-full bg-indigo-100 text-indigo-700 grid place-items-center font-bold text-lg">AC</div>
+        </div>
+      </div>
+
+      <!-- log incident -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-semibold">Incidents</h2>
+          <span class="text-xs text-slate-400">POST /incidents</span>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-2 mb-2">
+          <input id="title" placeholder="Describe the incident…" class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+          <select id="sev" class="rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            <option value="SEV1">SEV1</option>
+            <option value="SEV2" selected>SEV2</option>
+            <option value="SEV3">SEV3</option>
+          </select>
+          <button onclick="logIncident()" class="rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2">Log</button>
+        </div>
+        <div id="toast" class="hidden text-sm rounded-lg px-3 py-2 mb-2"></div>
+        <ul id="incidents" class="divide-y divide-slate-100"></ul>
+      </div>
+    </section>
+
+    <!-- RIGHT: the deployment / observability panel (the star) -->
+    <section class="lg:col-span-2 space-y-6">
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-semibold">Deployment</h2>
+          <span id="ro-status" class="fade text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700">● Healthy</span>
+        </div>
+
+        <!-- version + canary split -->
+        <div class="text-xs text-slate-400 uppercase tracking-wide">Rollout: oncall</div>
+        <div class="mt-2 space-y-2 text-sm">
+          <div class="flex items-center justify-between"><span>stable <code class="text-slate-500">v1.4.0</code></span><span id="stable-pct" class="tabular-nums text-slate-600">100%</span></div>
+          <div class="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex">
+            <div id="bar-stable" class="meter-fill h-full bg-emerald-500" style="width:100%"></div>
+            <div id="bar-canary" class="meter-fill h-full bg-amber-400" style="width:0%"></div>
+          </div>
+          <div class="flex items-center justify-between"><span>canary <code class="text-slate-500">v2.0.0</code></span><span id="canary-pct" class="tabular-nums text-slate-600">0%</span></div>
+        </div>
+
+        <!-- SLO error-rate meter -->
+        <div class="mt-5">
+          <div class="flex items-center justify-between text-xs">
+            <span class="uppercase tracking-wide text-slate-400">Error rate (SLO budget 5%)</span>
+            <span id="err-val" class="tabular-nums font-semibold text-emerald-600">0.0%</span>
+          </div>
+          <div class="mt-1 relative h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
+            <div id="err-bar" class="meter-fill h-full bg-emerald-500" style="width:0%"></div>
+            <!-- 5% threshold marker (scaled: bar maxes at 50% error => threshold at 10% of width) -->
+            <div class="absolute top-[-3px] bottom-[-3px] w-px bg-slate-400" style="left:10%"></div>
+          </div>
+          <div class="text-[10px] text-slate-400 mt-1">threshold marker = 5%</div>
+        </div>
+
+        <!-- analysis event log -->
+        <div class="mt-5">
+          <div class="text-xs uppercase tracking-wide text-slate-400 mb-1">AnalysisRun</div>
+          <ul id="events" class="text-xs space-y-1 text-slate-500 font-mono"></ul>
+        </div>
+      </div>
+
+      <!-- demo controls -->
+      <div class="bg-slate-900 rounded-xl p-5 text-slate-200">
+        <div class="text-xs uppercase tracking-wide text-slate-400 mb-2">Demo control</div>
+        <p class="text-sm text-slate-400 mb-3">Ship a v2 that expects an un-migrated <code class="text-slate-200">severity</code> column. Watch the canary fail its SLO and auto-roll-back.</p>
+        <div class="flex gap-2">
+          <button onclick="deployV2()" class="flex-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-medium px-3 py-2">Deploy v2 (bad migration)</button>
+          <button onclick="reset()" class="rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium px-3 py-2">Reset</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="max-w-6xl mx-auto px-6 pb-10 text-xs text-slate-400">
+    Prototype for design review — mock data, no backend. The deployment panel simulates Argo Rollouts + a Prometheus SLO gate.
+  </footer>
+
+<script>
+  const seed = [
+    { sev:'SEV3', title:'Elevated p95 on /incidents', time:'08:41' },
+    { sev:'SEV2', title:'Pager webhook retried 3x', time:'07:12' },
+  ];
+  const sevColor = { SEV1:'bg-rose-100 text-rose-700', SEV2:'bg-amber-100 text-amber-700', SEV3:'bg-sky-100 text-sky-700' };
+  let state = 'healthy';
+
+  function renderIncidents() {
+    const ul = document.getElementById('incidents');
+    ul.innerHTML = seed.map(i => `
+      <li class="py-2 flex items-center gap-3">
+        <span class="text-[10px] font-bold px-2 py-0.5 rounded ${sevColor[i.sev]}">${i.sev}</span>
+        <span class="flex-1 text-sm">${i.title}</span>
+        <span class="text-xs text-slate-400 tabular-nums">${i.time}</span>
+      </li>`).join('');
+  }
+
+  function toast(msg, ok) {
+    const t = document.getElementById('toast');
+    t.className = 'text-sm rounded-lg px-3 py-2 mb-2 ' + (ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200');
+    t.textContent = msg; t.classList.remove('hidden');
+  }
+
+  function logIncident() {
+    const title = document.getElementById('title').value || 'Untitled incident';
+    const sev = document.getElementById('sev').value;
+    if (state === 'canary') {
+      toast('500 Internal Server Error — column "severity" does not exist', false);
+      return;
+    }
+    seed.unshift({ sev, title, time: 'now' });
+    document.getElementById('title').value = '';
+    renderIncidents(); toast('Incident logged', true);
+  }
+
+  function setEvents(lines){ document.getElementById('events').innerHTML = lines.map(l=>`<li>${l}</li>`).join(''); }
+
+  function apply(s) {
+    state = s;
+    const banner = document.getElementById('banner'), dot = document.getElementById('banner-dot'), txt = document.getElementById('banner-text');
+    const ro = document.getElementById('ro-status');
+    const errBar = document.getElementById('err-bar'), errVal = document.getElementById('err-val');
+    const barS = document.getElementById('bar-stable'), barC = document.getElementById('bar-canary');
+    const sp = document.getElementById('stable-pct'), cp = document.getElementById('canary-pct');
+
+    if (s === 'healthy') {
+      banner.className = 'fade bg-emerald-50 border-b border-emerald-200 text-emerald-800';
+      dot.className='h-2.5 w-2.5 rounded-full bg-emerald-500'; txt.textContent='All systems healthy — serving v1.4.0';
+      ro.className='fade text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700'; ro.textContent='● Healthy';
+      barS.style.width='100%'; barC.style.width='0%'; sp.textContent='100%'; cp.textContent='0%';
+      errBar.style.width='0%'; errBar.className='meter-fill h-full bg-emerald-500'; errVal.textContent='0.0%'; errVal.className='tabular-nums font-semibold text-emerald-600';
+      setEvents(['— idle —']);
+    }
+    if (s === 'canary') {
+      banner.className='fade bg-rose-50 border-b border-rose-200 text-rose-800';
+      dot.className='h-2.5 w-2.5 rounded-full bg-rose-500'; txt.textContent='Incident API degraded — v2 querying un-migrated schema (severity column missing)';
+      ro.className='fade text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700'; ro.textContent='◐ Progressing (canary 40%)';
+      barS.style.width='60%'; barC.style.width='40%'; sp.textContent='60%'; cp.textContent='40%';
+      errBar.style.width='48%'; errBar.className='meter-fill h-full bg-rose-500'; errVal.textContent='24.0%'; errVal.className='tabular-nums font-semibold text-rose-600';
+      setEvents(['canary started @ 40% weight', 'scrape: oncall v2 → 500s', 'analysis: error-rate 24% ≥ 5% (SLO breach)']);
+    }
+    if (s === 'rolledback') {
+      banner.className='fade bg-emerald-50 border-b border-emerald-200 text-emerald-800';
+      dot.className='h-2.5 w-2.5 rounded-full bg-emerald-500'; txt.textContent='Auto-rolled-back to v1.4.0 — healthy, nobody paged';
+      ro.className='fade text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700'; ro.textContent='● Healthy (rolled back)';
+      barS.style.width='100%'; barC.style.width='0%'; sp.textContent='100%'; cp.textContent='0%';
+      errBar.style.width='0%'; errBar.className='meter-fill h-full bg-emerald-500'; errVal.textContent='0.0%'; errVal.className='tabular-nums font-semibold text-emerald-600';
+      setEvents(['analysis FAILED → abort', 'canary scaled to 0', '100% back on v1.4.0 ✓']);
+    }
+  }
+
+  function deployV2(){ apply('canary'); clearTimeout(window._t); window._t = setTimeout(()=>apply('rolledback'), 3200); }
+  function reset(){ clearTimeout(window._t); apply('healthy'); document.getElementById('toast').classList.add('hidden'); }
+
+  const _initial = new URLSearchParams(location.search).get('state');
+  renderIncidents();
+  apply(['healthy','canary','rolledback'].includes(_initial) ? _initial : 'healthy');
+</script>
+</body>
+</html>

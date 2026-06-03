@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>On-Call Paved Road — design diagrams</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: true, theme: 'neutral', themeVariables: { fontFamily: 'Inter, sans-serif' } });
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    body { font-family:'Inter',sans-serif; }
+    .card .mermaid { display:flex; justify-content:center; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+  <div class="max-w-5xl mx-auto px-6 py-10 space-y-8">
+    <header>
+      <h1 class="text-2xl font-bold tracking-tight">On-Call Paved Road — design</h1>
+      <p class="text-slate-500 mt-1">Deployment-safety demo: a metric-gated canary that auto-rolls-back a bad release (v2 vs. an un-migrated <code>severity</code> column).</p>
+    </header>
+
+    <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <h2 class="font-semibold mb-4">1 · Architecture</h2>
+      <pre class="mermaid">
+flowchart TB
+  subgraph kind["kind cluster"]
+    RO["Argo Rollout: oncall<br/>canary 40% → analysis → 100%"]
+    SVC["Service: oncall"]
+    PG[("Postgres<br/>v1 schema · no severity col")]
+    LG["loadgen ~10 rps<br/>GET/POST /incidents"]
+    PROM["Prometheus<br/>scrape /metrics @5s"]
+    AT["AnalysisTemplate<br/>error-rate SLO ≥ 5% → abort"]
+    GRA["Grafana<br/>golden signals"]
+    RO --> SVC --> PG
+    LG --> SVC
+    SVC --> PROM
+    AT --> PROM
+    AT -->|breach| RO
+    RO -->|auto-rollback| SVC
+    PROM --> GRA
+  end
+      </pre>
+    </div>
+
+    <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <h2 class="font-semibold mb-4">2 · The money shot — bad deploy → auto-rollback</h2>
+      <pre class="mermaid">
+sequenceDiagram
+  participant Op as Operator (deploy v2)
+  participant RO as Argo Rollout
+  participant V2 as oncall v2
+  participant PG as Postgres (no severity col)
+  participant Prom as Prometheus
+  participant AT as AnalysisRun
+  Op->>RO: set image oncall=v2
+  RO->>V2: canary 40%
+  V2->>PG: SELECT/INSERT ... severity ...
+  PG-->>V2: ERROR column "severity" does not exist
+  V2-->>Prom: 500s on the canary slice
+  AT->>Prom: error-rate query
+  Prom-->>AT: 24% ≥ 5%
+  AT->>RO: Failed → abort
+  RO->>RO: 100% back to v1 (healthy)
+  Note over Op,RO: ~30s · nobody paged
+      </pre>
+    </div>
+
+    <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <h2 class="font-semibold mb-4">3 · Deployment / stand-up flow</h2>
+      <pre class="mermaid">
+flowchart LR
+  A["make up<br/>kind + Argo + Postgres<br/>+ Prometheus + Grafana"] --> B["make build<br/>v1 / v2 images"]
+  B --> C["make deploy<br/>apply v1 + run v1 migration"]
+  C --> D["make load<br/>~10 rps"]
+  D --> E["make bad<br/>deploy v2 (un-migrated schema)"]
+  E --> F{"SLO gate"}
+  F -->|error-rate ≥ 5%| G["auto-rollback to v1"]
+  G --> H["record clip"]
+      </pre>
+    </div>
+
+    <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <h2 class="font-semibold mb-4">4 · Production mapping (Azure)</h2>
+      <pre class="mermaid">
+flowchart LR
+  subgraph Demo["Demo — kind, local"]
+    d1["kind"] --> d2["Argo Rollouts"] --> d3["Prometheus"]
+  end
+  subgraph Prod["Production paved road — Azure"]
+    p0["GitHub Actions"] --> p1["ACR"]
+    p1 --> p2["Argo CD (GitOps)"]
+    p2 --> p3["AKS"]
+    p3 --> p4["Argo Rollouts canary"]
+    p4 --> p5["Azure Monitor /<br/>Managed Prometheus"]
+    p5 -->|analysis| p4
+    p6["Azure DB for PostgreSQL"] --> p3
+    p7["Bicep + what-if"] --> p3
+  end
+  Demo -. "same Rollout + AnalysisTemplate manifests" .-> Prod
+      </pre>
+    </div>
+
+    <footer class="text-xs text-slate-400 pb-8">Rendered with Mermaid · design review prototype.</footer>
+  </div>
+</body>
+</html>
