@@ -4,7 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>OnCall — incident logger (paved-road demo)</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script>window.__assets={tw:false};function __assetFail(k){window.__assets[k]=true;}
+    document.addEventListener('DOMContentLoaded',function(){
+      if(window.__assets.tw){var w=document.getElementById('asset-warn');if(w)w.style.display='block';}
+    });</script>
+  <script src="./vendor/tailwind.js" onerror="__assetFail('tw')"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
@@ -13,6 +17,9 @@
   </style>
 </head>
 <body class="bg-slate-100 text-slate-800 min-h-screen">
+  <div id="asset-warn" style="display:none;background:#fef2f2;color:#991b1b;font:13px/1.4 system-ui,sans-serif;padding:10px 16px;border-bottom:1px solid #fecaca;text-align:center">
+    ⚠ Some assets failed to load (likely offline or a blocked network). Content below is still present, just unstyled.
+  </div>
   <!-- top bar -->
   <header class="bg-slate-900 text-white">
     <div class="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
@@ -125,16 +132,17 @@
   </footer>
 
 <script>
-  const seed = [
+  const SEED = [
     { sev:'SEV3', title:'Elevated p95 on /incidents', time:'08:41' },
     { sev:'SEV2', title:'Pager webhook retried 3x', time:'07:12' },
   ];
+  let rows = SEED.map(i => ({ ...i }));
   const sevColor = { SEV1:'bg-rose-100 text-rose-700', SEV2:'bg-amber-100 text-amber-700', SEV3:'bg-sky-100 text-sky-700' };
   let state = 'healthy';
 
   function renderIncidents() {
     const ul = document.getElementById('incidents');
-    ul.innerHTML = seed.map(i => `
+    ul.innerHTML = rows.map(i => `
       <li class="py-2 flex items-center gap-3">
         <span class="text-[10px] font-bold px-2 py-0.5 rounded ${sevColor[i.sev]}">${i.sev}</span>
         <span class="flex-1 text-sm">${i.title}</span>
@@ -155,7 +163,7 @@
       toast('500 Internal Server Error — column "severity" does not exist', false);
       return;
     }
-    seed.unshift({ sev, title, time: 'now' });
+    rows.unshift({ sev, title, time: 'now' });
     document.getElementById('title').value = '';
     renderIncidents(); toast('Incident logged', true);
   }
@@ -197,7 +205,7 @@
   }
 
   function deployV2(){ apply('canary'); clearTimeout(window._t); window._t = setTimeout(()=>apply('rolledback'), 3200); }
-  function reset(){ clearTimeout(window._t); apply('healthy'); document.getElementById('toast').classList.add('hidden'); }
+  function reset(){ clearTimeout(window._t); rows = SEED.map(i => ({ ...i })); renderIncidents(); apply('healthy'); document.getElementById('toast').classList.add('hidden'); }
 
   const _initial = new URLSearchParams(location.search).get('state');
   renderIncidents();
