@@ -1,0 +1,7 @@
+# Critical Eye / safety-floor scan sidecars — never commit
+*_scan_*.json
+*fingerprint*.json
+*tripwire*.json
+
+# OS / editor cruft
+.DS_Store

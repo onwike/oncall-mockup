@@ -4,10 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>On-Call Paved Road — design diagrams</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-    mermaid.initialize({ startOnLoad: true, theme: 'neutral', themeVariables: { fontFamily: 'Inter, sans-serif' } });
+  <script>window.__assets={tw:false,mm:false};function __assetFail(k){window.__assets[k]=true;}
+    document.addEventListener('DOMContentLoaded',function(){
+      if(window.__assets.tw||window.__assets.mm){var w=document.getElementById('asset-warn');if(w)w.style.display='block';}
+    });</script>
+  <script src="../vendor/tailwind.js" onerror="__assetFail('tw')"></script>
+  <script src="../vendor/mermaid.min.js" onerror="__assetFail('mm')"></script>
+  <script>
+    if (window.mermaid) mermaid.initialize({ startOnLoad: true, theme: 'neutral', themeVariables: { fontFamily: 'Inter, sans-serif' } });
   </script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
@@ -16,6 +20,9 @@
   </style>
 </head>
 <body class="bg-slate-100 text-slate-800">
+  <div id="asset-warn" style="display:none;background:#fef2f2;color:#991b1b;font:13px/1.4 system-ui,sans-serif;padding:10px 16px;border-bottom:1px solid #fecaca;text-align:center">
+    ⚠ Some assets failed to load (likely offline or a blocked network). Diagram source is still present below.
+  </div>
   <div class="max-w-5xl mx-auto px-6 py-10 space-y-8">
     <header>
       <h1 class="text-2xl font-bold tracking-tight">On-Call Paved Road — design</h1>
@@ -100,6 +107,25 @@ flowchart LR
     p7["Bicep + what-if"] --> p3
   end
   Demo -. "same Rollout + AnalysisTemplate manifests" .-> Prod
+      </pre>
+    </div>
+
+    <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <h2 class="font-semibold mb-4">5 · CI/CD pipeline — commit to production</h2>
+      <pre class="mermaid">
+flowchart LR
+  DEV["git push<br/>feature branch → PR → main"] --> CI
+  subgraph CI["GitHub Actions (CI)"]
+    B["build image"] --> T["unit tests"]
+    T --> SC["Trivy scan<br/>HIGH / CRITICAL"]
+    SC --> MG["migration lint<br/>expand / contract check"]
+  end
+  CI --> REG["push image → ACR"]
+  REG --> BUMP["bump image tag<br/>in GitOps repo"]
+  BUMP --> CD["Argo CD sync"]
+  CD --> RO["Argo Rollouts<br/>canary + AnalysisTemplate"]
+  RO -->|SLO pass| PROD["promote → 100%"]
+  RO -->|SLO breach| RB["auto-rollback to stable"]
       </pre>
     </div>
 
