@@ -11,125 +11,205 @@
   <script src="../vendor/tailwind.js" onerror="__assetFail('tw')"></script>
   <script src="../vendor/mermaid.min.js" onerror="__assetFail('mm')"></script>
   <script>
-    if (window.mermaid) mermaid.initialize({ startOnLoad: true, theme: 'neutral', themeVariables: { fontFamily: 'Inter, sans-serif' } });
+    if (window.mermaid) mermaid.initialize({
+      startOnLoad: true, theme: 'neutral',
+      themeVariables: { fontFamily: 'Inter, sans-serif', fontSize: '15px' },
+      flowchart: { useMaxWidth: true, htmlLabels: true, padding: 12 },
+      sequence: { useMaxWidth: true, wrap: true, width: 150, actorFontSize: 16, messageFontSize: 14, noteFontSize: 13 }
+    });
   </script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     body { font-family:'Inter',sans-serif; }
     .card .mermaid { display:flex; justify-content:center; }
+    .sec { font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:#94a3b8; }
+    code { background:#f1f5f9; padding:0 4px; border-radius:4px; font-size:.92em; }
   </style>
 </head>
 <body class="bg-slate-100 text-slate-800">
   <div id="asset-warn" style="display:none;background:#fef2f2;color:#991b1b;font:13px/1.4 system-ui,sans-serif;padding:10px 16px;border-bottom:1px solid #fecaca;text-align:center">
     ⚠ Some assets failed to load (likely offline or a blocked network). Diagram source is still present below.
   </div>
-  <div class="max-w-5xl mx-auto px-6 py-10 space-y-8">
-    <header>
-      <h1 class="text-2xl font-bold tracking-tight">On-Call Paved Road — design</h1>
-      <p class="text-slate-500 mt-1">Deployment-safety demo: a metric-gated canary that auto-rolls-back a bad release (v2 vs. an un-migrated <code>severity</code> column).</p>
+
+  <div class="max-w-6xl mx-auto px-6 py-10">
+    <!-- Page header + legend -->
+    <header class="mb-2">
+      <h1 class="text-2xl font-bold tracking-tight">On-Call Paved Road</h1>
+      <p class="text-slate-500 mt-1 max-w-3xl">Deployment-safety demo: a metric-gated canary that automatically rolls back a bad release. The failure under test is a v2 that queries an <code>incidents.severity</code> column the database has not migrated to yet.</p>
+      <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-500 mt-4 border-t border-slate-200 pt-3">
+        <span class="sec">Legend</span>
+        <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-sm" style="background:#dcfce7;border:1px solid #16a34a"></span> healthy / stable</span>
+        <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-sm" style="background:#fee2e2;border:1px solid #dc2626"></span> failure path</span>
+        <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-sm" style="background:#dbeafe;border:1px solid #2563eb"></span> Azure / cloud</span>
+        <span class="flex items-center gap-1.5"><span class="h-3 w-3 rounded-sm" style="background:#fef3c7;border:1px solid #d97706"></span> safety loop</span>
+        <span class="text-slate-400">database = cylinder · decision = diamond</span>
+      </div>
     </header>
 
+    <!-- ============ SECTION 1: THE SYSTEM ============ -->
+    <h2 class="sec mt-10 mb-3">1 · The system</h2>
     <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-      <h2 class="font-semibold mb-4">1 · Architecture</h2>
+      <h3 class="font-semibold text-slate-800">Architecture</h3>
+      <p class="text-sm text-slate-600 mt-1 mb-4 max-w-3xl">Everything runs in one local <code>kind</code> cluster. A load generator keeps steady traffic flowing so a bad release surfaces in metrics within seconds. The <span class="text-amber-700 font-medium">amber safety loop</span> is the mechanism: Prometheus feeds the AnalysisTemplate, which can abort the Rollout on its own, before any human is involved.</p>
       <pre class="mermaid">
 flowchart TB
   subgraph kind["kind cluster"]
-    RO["Argo Rollout: oncall<br/>canary 40% → analysis → 100%"]
-    SVC["Service: oncall"]
-    PG[("Postgres<br/>v1 schema · no severity col")]
-    LG["loadgen ~10 rps<br/>GET/POST /incidents"]
-    PROM["Prometheus<br/>scrape /metrics @5s"]
-    AT["AnalysisTemplate<br/>error-rate SLO ≥ 5% → abort"]
-    GRA["Grafana<br/>golden signals"]
-    RO --> SVC --> PG
-    LG --> SVC
-    SVC --> PROM
-    AT --> PROM
-    AT -->|breach| RO
+    direction TB
+    RO["Argo Rollout: oncall<br/>canary 40% then analysis then 100%"]:::neutral
+    SVC["Service: oncall"]:::healthy
+    PG[("Postgres<br/>v1 schema, no severity col")]:::neutral
+    LG["loadgen ~10 rps"]:::neutral
+    PROM["Prometheus<br/>scrape /metrics"]:::neutral
+    AT["AnalysisTemplate<br/>error-rate SLO &ge; 5% then abort"]:::failure
+    RO -->|manages| SVC
+    SVC --> PG
+    LG -->|traffic| SVC
+    SVC -->|/metrics| PROM
+    AT -->|PromQL error-rate| PROM
+    AT -->|breach, abort| RO
     RO -->|auto-rollback| SVC
-    PROM --> GRA
   end
+  classDef healthy fill:#dcfce7,stroke:#16a34a,color:#14532d;
+  classDef failure fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;
+  classDef neutral fill:#f1f5f9,stroke:#94a3b8,color:#334155;
+  linkStyle 3,4,5,6 stroke:#d97706,stroke-width:2.5px;
       </pre>
     </div>
 
-    <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-      <h2 class="font-semibold mb-4">2 · The money shot — bad deploy → auto-rollback</h2>
+    <!-- ============ SECTION 2: THE INCIDENT (HERO) ============ -->
+    <h2 class="sec mt-10 mb-3">2 · The incident</h2>
+    <div class="card bg-white rounded-xl shadow-md border-2 border-amber-400 p-6">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h3 class="font-semibold text-slate-800">Bad deploy then automatic rollback</h3>
+        <span class="text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">The money shot</span>
+      </div>
+      <p class="text-sm text-slate-600 mt-1 mb-4 max-w-3xl">The one to watch. A v2 that needs a database column the schema does not have yet is rolled out to 40% of traffic. Its requests error out, the canary error rate hits about 24% against a 5% SLO, and Argo Rollouts aborts and restores v1 in roughly 30 seconds, with nobody paged. The <span class="text-rose-700 font-medium">red band is the failure</span>; the <span class="text-emerald-700 font-medium">green band is the recovery</span>.</p>
+      <div class="flex flex-wrap gap-2 mb-4">
+        <span class="text-xs font-semibold bg-slate-100 text-slate-700 px-2.5 py-1 rounded-md">40% canary slice</span>
+        <span class="text-xs font-semibold bg-rose-50 text-rose-700 px-2.5 py-1 rounded-md">~24% error rate</span>
+        <span class="text-xs font-semibold bg-amber-50 text-amber-700 px-2.5 py-1 rounded-md">5% SLO budget</span>
+        <span class="text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-md">~30s to rollback</span>
+        <span class="text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-md">0 paged</span>
+      </div>
       <pre class="mermaid">
 sequenceDiagram
-  participant Op as Operator (deploy v2)
+  autonumber
+  participant Op as Operator
   participant RO as Argo Rollout
   participant V2 as oncall v2
   participant PG as Postgres (no severity col)
   participant Prom as Prometheus
   participant AT as AnalysisRun
-  Op->>RO: set image oncall=v2
-  RO->>V2: canary 40%
-  V2->>PG: SELECT/INSERT ... severity ...
-  PG-->>V2: ERROR column "severity" does not exist
-  V2-->>Prom: 500s on the canary slice
-  AT->>Prom: error-rate query
-  Prom-->>AT: 24% ≥ 5%
-  AT->>RO: Failed → abort
-  RO->>RO: 100% back to v1 (healthy)
-  Note over Op,RO: ~30s · nobody paged
-      </pre>
-    </div>
-
-    <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-      <h2 class="font-semibold mb-4">3 · Deployment / stand-up flow</h2>
-      <pre class="mermaid">
-flowchart LR
-  A["make up<br/>kind + Argo + Postgres<br/>+ Prometheus + Grafana"] --> B["make build<br/>v1 / v2 images"]
-  B --> C["make deploy<br/>apply v1 + run v1 migration"]
-  C --> D["make load<br/>~10 rps"]
-  D --> E["make bad<br/>deploy v2 (un-migrated schema)"]
-  E --> F{"SLO gate"}
-  F -->|error-rate ≥ 5%| G["auto-rollback to v1"]
-  G --> H["record clip"]
-      </pre>
-    </div>
-
-    <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-      <h2 class="font-semibold mb-4">4 · Production mapping (Azure)</h2>
-      <pre class="mermaid">
-flowchart LR
-  subgraph Demo["Demo — kind, local"]
-    d1["kind"] --> d2["Argo Rollouts"] --> d3["Prometheus"]
+  Op->>RO: deploy v2 (set image)
+  RO->>V2: route 40% canary traffic
+  rect rgb(254, 226, 226)
+  Note over V2,PG: FAILURE — every /incidents op reads/writes severity
+  V2->>PG: SELECT / INSERT ... severity ...
+  PG-->>V2: ERROR: column "severity" does not exist
+  V2-->>Prom: 500s on the /incidents path (canary)
+  AT->>Prom: PromQL query: canary error-rate
+  Prom-->>AT: ~24% overall &ge; 5% SLO
+  AT->>RO: SLO breach, mark Failed
   end
-  subgraph Prod["Production paved road — Azure"]
-    p0["GitHub Actions"] --> p1["ACR"]
-    p1 --> p2["Argo CD (GitOps)"]
-    p2 --> p3["AKS"]
-    p3 --> p4["Argo Rollouts canary"]
-    p4 --> p5["Azure Monitor /<br/>Managed Prometheus"]
-    p5 -->|analysis| p4
-    p6["Azure DB for PostgreSQL"] --> p3
-    p7["Bicep + what-if"] --> p3
+  rect rgb(220, 252, 231)
+  RO->>RO: abort, shift 100% back to v1
+  Note over Op,RO: ~30s end to end · no human paged (design target)
   end
-  Demo -. "same Rollout + AnalysisTemplate manifests" .-> Prod
+      </pre>
+      <div class="mt-4 border-t border-slate-100 pt-3">
+        <div class="sec mb-2">The arc, step by step</div>
+        <ol class="text-sm text-slate-600 ml-4 list-decimal space-y-0.5 max-w-3xl">
+          <li>Deploy v2; Argo routes 40% of traffic to it as a canary.</li>
+          <li>Every <code>/incidents</code> request touches the missing <code>severity</code> column and returns a 500.</li>
+          <li>Errors on the canary push the overall error rate to ~24%, well above the 5% SLO budget.</li>
+          <li>The AnalysisRun reads that from Prometheus and marks the canary Failed.</li>
+          <li>Argo aborts and shifts 100% of traffic back to the healthy v1, in about 30 seconds. No page.</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- ============ SECTION 3: THE PRODUCTION PATH ============ -->
+    <h2 class="sec mt-10 mb-3">3 · The production path</h2>
+    <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <h3 class="font-semibold text-slate-800">Same manifests, on Azure</h3>
+      <p class="text-sm text-slate-600 mt-1 mb-4 max-w-3xl">The same Rollout and AnalysisTemplate run unchanged in production. Only the platform underneath swaps out: <code>kind</code> becomes AKS, the Postgres pod becomes Azure Database for PostgreSQL, and Prometheus becomes Azure Monitor managed Prometheus.</p>
+      <pre class="mermaid">
+flowchart LR
+  subgraph Demo["Demo — local (kind)"]
+    direction TB
+    d1["kind cluster"]:::neutral
+    d2["Argo Rollouts<br/>+ Analysis"]:::neutral
+    d3["Prometheus"]:::neutral
+    d4[("Postgres pod")]:::neutral
+    d1 --> d2 --> d3
+    d2 --> d4
+  end
+  subgraph Prod["Production — Azure"]
+    direction TB
+    p1["AKS"]:::cloud
+    p2["Argo Rollouts<br/>+ Analysis"]:::cloud
+    p3["Azure Monitor<br/>managed Prometheus"]:::cloud
+    p4[("Azure DB for<br/>PostgreSQL")]:::cloud
+    p1 --> p2 --> p3
+    p2 --> p4
+  end
+  Demo -. "same Rollout +<br/>AnalysisTemplate manifests" .-> Prod
+  classDef neutral fill:#f1f5f9,stroke:#94a3b8,color:#334155;
+  classDef cloud fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
       </pre>
     </div>
 
-    <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-      <h2 class="font-semibold mb-4">5 · CI/CD pipeline — commit to production</h2>
+    <div class="card bg-white rounded-xl shadow-sm border border-slate-200 p-6 mt-6">
+      <h3 class="font-semibold text-slate-800">CI/CD pipeline — commit to production</h3>
+      <p class="text-sm text-slate-600 mt-1 mb-4 max-w-3xl">How a change reaches production safely. A push is built, tested, image-scanned, and migration-linted (the expand/contract check that prevents the exact failure above), pushed to the registry, and synced by Argo CD. The canary then either promotes to 100% or auto-rolls-back on an SLO breach.</p>
       <pre class="mermaid">
 flowchart LR
-  DEV["git push<br/>feature branch → PR → main"] --> CI
-  subgraph CI["GitHub Actions (CI)"]
+  DEV["git push<br/>(PR then main)"]:::neutral
+  subgraph CI["GitHub Actions"]
+    direction TB
     B["build image"] --> T["unit tests"]
-    T --> SC["Trivy scan<br/>HIGH / CRITICAL"]
-    SC --> MG["migration lint<br/>expand / contract check"]
+    T --> SC["Trivy scan"]
+    SC --> MG["migration lint<br/>(expand / contract)"]
   end
-  CI --> REG["push image → ACR"]
-  REG --> BUMP["bump image tag<br/>in GitOps repo"]
-  BUMP --> CD["Argo CD sync"]
-  CD --> RO["Argo Rollouts<br/>canary + AnalysisTemplate"]
-  RO -->|SLO pass| PROD["promote → 100%"]
-  RO -->|SLO breach| RB["auto-rollback to stable"]
+  REG["ACR<br/>registry"]:::cloud
+  CD["Argo CD<br/>GitOps sync"]:::cloud
+  ROLL["Argo Rollouts<br/>canary + analysis"]:::cloud
+  OK["promote to 100%"]:::healthy
+  BAD["auto-rollback"]:::failure
+  DEV --> CI
+  CI --> REG --> CD --> ROLL
+  ROLL -->|SLO pass| OK
+  ROLL -->|SLO breach| BAD
+  BAD --> HALT["release halted<br/>fix and re-push"]:::neutral
+  classDef neutral fill:#f1f5f9,stroke:#94a3b8,color:#334155;
+  classDef cloud fill:#dbeafe,stroke:#2563eb,color:#1e3a8a;
+  classDef healthy fill:#dcfce7,stroke:#16a34a,color:#14532d;
+  classDef failure fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;
       </pre>
     </div>
 
-    <footer class="text-xs text-slate-400 pb-8">Rendered with Mermaid · design review prototype.</footer>
+    <!-- ============ APPENDIX ============ -->
+    <h2 class="sec mt-10 mb-3">Appendix · running it locally</h2>
+    <div class="card bg-white rounded-xl border border-slate-200 border-dashed p-6 opacity-95">
+      <h3 class="font-semibold text-slate-700">Stand-up flow</h3>
+      <p class="text-sm text-slate-600 mt-1 mb-4 max-w-3xl">End to end, how the demo is stood up. <code>make bad</code> triggers the failure scenario from section 2; the SLO gate catches it and rolls back.</p>
+      <pre class="mermaid">
+flowchart TB
+  A["make up<br/>kind + Argo + Postgres + Prometheus"] --> B["make build<br/>v1 / v2 images"]
+  B --> C["make deploy<br/>apply v1, run migration"]
+  C --> D["make load<br/>~10 rps"]
+  D --> E["make bad<br/>deploy v2 (un-migrated schema)"]:::failure
+  E --> F{"SLO gate<br/>error-rate &ge; 5%?"}
+  F -->|"yes, breach"| G["auto-rollback to v1"]:::healthy
+  F -->|"no, pass"| P["promote v2 to 100%"]:::healthy
+  G --> H["demo recorded"]
+  P --> H
+  classDef healthy fill:#dcfce7,stroke:#16a34a,color:#14532d;
+  classDef failure fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;
+      </pre>
+    </div>
+
+    <footer class="text-xs text-slate-400 pb-8 pt-8">On-Call Paved Road · deployment-safety demo · diagrams rendered with Mermaid.</footer>
   </div>
 </body>
 </html>
